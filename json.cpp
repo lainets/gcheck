@@ -14,11 +14,16 @@ std::string Escapees() {
     }
     return escapees;
 }
+
+std::string Replacee(char val) {
+    std::string ret = "\\u0000";
+    std::sprintf(ret.data()+2, "%.4X", val);
+    return ret;
+}
 std::vector<std::string> Replacees() {
     std::vector<std::string> replacees{"\\\\", "\\\""};
     for(char c = 0; c < 0x20; c++) {
-        replacees.push_back("\\u0000");
-        std::sprintf((char*)replacees.back().data()+2, "%.4X", c);
+        replacees.push_back(Replacee(c));
     }
     return replacees;
 }
@@ -53,6 +58,25 @@ JSON JSONEscape(std::string str) {
             }
         }
         pos = min;
+    }
+    
+    // encode non-utf-8 characters
+    for(size_t pos = 0; pos < str.length(); pos++) {
+        int num = 0;
+        while((str[pos] << num) & 0b10000000) num++;
+        if(num == 0)
+            continue;
+        else if(num != 1) {
+            int count = 0;
+            while(count < num-1 && (str[pos+count+1] & 0b11000000) == 0b10000000) count++;
+            if(count == num-1) {
+                pos += count;
+                continue;
+            }
+        }
+        auto repl = Replacee(str[pos]);
+        str.replace(pos, 1, repl);
+        pos += repl.length()-1;
     }
     
     return str;
