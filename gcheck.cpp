@@ -295,6 +295,7 @@ bool Test::RunTests() {
     for(auto it = test_list_().begin(); it != test_list_().end(); it++) {
         total_max += (*it)->data_.max_points;
     }
+    Formatter::SetTotal(0, total_max);
 
     double total = 0;
     double max_so_far = 0;
