@@ -143,10 +143,13 @@ def mark_differences(correct, answer):
 def replace_entries(template, input_data, correct_data, output_data):
     """Returns the template with the input, output and correct tags replaced"""
     correct, output = mark_differences(str(correct_data), str(output_data))
-    if len(input_data) == 1: # no brackets when only item
+    if isinstance(input_data, str):
+        input = input_data
+    elif len(input_data) == 1: # no brackets when only item
         input = str(input_data[0])
     else:
-        input = str(input_data)
+        input = [s if isinstance(s, str) else str(s) for s in input_data]
+        input = str(type(input_data)) + "[" + ", ".join(input) + "]"
     if len(input) > 0 and input[-1] == '\n': # html pre tags need two newlines at the end to place a newline
         input += '\n'
     if len(output) > 0 and output[-1] == '\n':
