@@ -1,18 +1,14 @@
+#!/usr/bin/env python3
+
 import json
 import os
 import sys
 import argparse
 import html
-from report_parser import *
+from jinja2 import Environment, FileSystemLoader, evalcontextfilter, Markup
+from report_parser import Report, Test, Result, Type, UserObject
 
-parser = argparse.ArgumentParser()
-parser.add_argument("-o", dest='out', type=str, default="stdout")
-parser.add_argument("-i", dest='input', type=str, default="report.json")
-parser.add_argument("-p", dest='max_points', type=float, default=-1)
-parser.add_argument("-t", dest='template_dir', type=str, default=os.path.join(sys.path[0], "../templates/"))
-args = parser.parse_args()
-
-default_format = "list"
+default_format = "vertical"
 
 template_filenames = {
     "vertical": "vertical.html",
@@ -20,15 +16,12 @@ template_filenames = {
     "main": "main.html",
     "testbody": "testbody.html"
     }
-template_location = args.template_dir
-report_filename = args.input
-output_filename = args.out
-max_points = args.max_points
-templates = {}
 
-def sanitize_replace(original, substr, replacor):
-    replacor = html.escape(replacor)
-    return original.replace(substr, html.escape(replacor))
+if "__file__" in globals():
+    default_templates = os.path.split(__file__)[0]
+else:
+    default_templates = os.path.join(sys.path[0], "../templates/")
+
 
 def differences(correct, answer):
     """Returns a tuple with two lists of tuples with the difference locations and lengths"""
@@ -59,7 +52,7 @@ def differences(correct, answer):
     start = c_words[:n]
 
     n = 0
-    while n < len(c_words) and n < len(a_words) and c_words[-n-1] == a_words[-n-1]:
+    while n + len(start) < len(c_words) and n + len(start) < len(a_words) and c_words[-n-1] == a_words[-n-1]:
         n+=1
     if n != 0:
         end = c_words[-n:]
@@ -118,169 +111,164 @@ def differences(correct, answer):
 
     dc, da = diffs(c_words, a_words)
     offset = sum([len(s) for s in start])
-    '''
-    if len(da) != 0 and len(da) == len(dc):
-        ds = [diffs(c_words[dc[i]], a_words[da[i]]) for i in range(len(da))]
-        print(ds)
-        dc2, da2 = list(zip(*ds))
-        print(dc2, da2)
-    '''
 
     return get_indices(c_words, dc, offset), get_indices(a_words, da, offset)
 
+class Diff:
+    def __init__(self, string, positions = None):
+        if positions is None:
+            self.diff = ["", str(string)]
+        else:
+            lastpos = 0
+            self.diff = []
+            for pos, length in positions:
+                self.diff.append(string[lastpos:pos])
+                self.diff.append(string[pos:pos+length])
+                lastpos = pos+length
+            self.diff.append(string[lastpos:])
+
+
+@evalcontextfilter
+def diff_filter(eval_ctx, value, start, end, add_space = True):
+    if isinstance(value, Diff):
+        res = ""
+        for index, val in enumerate(value.diff):
+            if index % 2 == 0:
+                res = res + val
+            elif add_space:
+                res = res + Markup(start) + val.replace("\n", " \n") + Markup(end)
+            else:
+                res = res + Markup(start) + val + Markup(end)
+        return res
+    else:
+        return value
+
+
 def mark_differences(correct, answer):
     """Returns a tuple the differences between the two strings highlighted with html and css"""
-    def mark(string, positions, start_marker, end_marker):
-        offset = 0
-        marker_length = len(start_marker) + len(end_marker)
-        for pos, length in positions:
-            hl = string[pos+offset:pos+offset+length]
-            string = string[:pos+offset] + start_marker + hl.replace('\n',' \n') + end_marker + string[pos+offset+length:]
-            offset += marker_length + hl.count('\n')
-        return string
-
-    cor_diff, ans_diff = differences(correct, answer)
-    return mark(correct, cor_diff, "<span style=\"background-color: red\">", "</span>"), mark(answer, ans_diff, "<span style=\"background-color: red\">", "</span>")
-
-def replace_entries(template, input_data, correct_data, output_data):
-    """Returns the template with the input, output and correct tags replaced"""
-    correct, output = mark_differences(str(correct_data), str(output_data))
-    if len(input_data) == 1: # no brackets when only item
-        input = str(input_data[0])
+    if isinstance(correct, UserObject):
+        correct = correct.string
+    if isinstance(answer, UserObject):
+        answer = answer.string
+    if answer is None or correct is None:
+        return correct, answer
+    if isinstance(correct, str):
+        cor_diff, ans_diff = differences(correct, answer)
+        return Diff(correct, cor_diff), Diff(answer, ans_diff)
     else:
-        input = str(input_data)
-    if len(input) > 0 and input[-1] == '\n': # html pre tags need two newlines at the end to place a newline
-        input += '\n'
-    if len(output) > 0 and output[-1] == '\n':
-        output += '\n'
-    if len(correct) > 0 and correct[-1] == '\n':
-        correct += '\n'
-    templ = template.replace("{{{input}}}", input)
-    templ = templ.replace("{{{output}}}", output)
-    templ = templ.replace("{{{correct}}}", correct)
-    return templ
+        if correct == answer:
+            return correct, answer
+        else:
+            return Diff(correct), Diff(answer)
 
-def get_table(template, results, replace_func):
-    """Fills the template with the data in results according to replace_func"""
-    if len(results) == 0:
-        return ""
-    hor = template
-    pos = 0
-    entries = []
-    while True: # find and copy the templates
-        pos = hor.find("<!--ENTRY", pos)
-        if pos == -1:
-            break
-        pos = hor.find("\n", pos)
-        if pos == -1:
-            break
-        end = hor.find("-->", pos)
-        if end == -1:
-            break
-        end = hor.rfind("\n", 0, end)
-        if end == -1:
-            break
-        entries.append(hor[pos+1:end])
-        pos = end
 
-    pos = 0
-    index = 0
-    while True: # replace each template with a series of filled ones
-        pos = hor.find("<!--ENTRY")
-        if pos == -1:
-            break
-        end = hor.find("-->", pos)
-        if end == -1:
-            break
+class Beautify:
+    def __init__(self, report, template_paths = None):
+        if template_paths is None:
+            template_paths = [default_templates]
+        else:
+            if not isinstance(template_paths, list):
+                template_paths = [template_paths]
+            template_paths.append(default_templates)
+        self.env = Environment(loader=FileSystemLoader(template_paths), autoescape=True)
+        self.env.filters['diff'] = diff_filter
+        self.report = report
+        self.templates = template_filenames
 
-        content = ""
-        for result in results:
-            content += replace_func(entries[index], result)
+    def add_template(self, name, filename):
+        self.templates[name] = filename
 
-        hor = hor[:pos] + content + hor[end+3:]
+    def stdio(self):
+        stdio = ""
+        for test in self.report.tests:
+            if test.stdout != "" or test.stderr != "":
+                stdio += "Test: " + test.get_name() + "\n"
+                if (test.stdout != ""):
+                    stdio += "Stdout: " + test.stdout + "\n"
+                if (test.stderr != ""):
+                    stdio += "Stderr: " + test.stderr + "\n"
+                stdio += "--------------------------------------------------------------\n"
+        return stdio
 
-        pos = end
-        index += 1
+    def render_main(self):
+        return self.render(self.templates["main"], render_test=self.render_test, render_stdio=self.render_stdio, tests=self.report.tests)
 
-    return hor
+    def render_stdio(self):
+        return self.stdio()
 
-def replace(templ, results, typ, func, input_text, output_text, correct_text):
-    templ = sanitize_replace(templates[format_name], "{{{input_header}}}", input_text)
-    templ = sanitize_replace(templ, "{{{output_header}}}", output_text)
-    templ = sanitize_replace(templ, "{{{correct_header}}}", correct_text)
-    return get_table(templ, [res for res in results if res["type"] == typ], func)
+    def render_test(self, test: Test):
+        format_name = default_format if not test.format else test.format
+        return self.render(self.templates["testbody"], obj=test, format=format_name, render_result=self.render_result, suite=test.suite, test=test.test, points=test.points, max_points=test.max_points, results=test.results)
 
-for key, file_name in template_filenames.items():
-    with open(template_location + file_name, 'r') as f:
-        templates[key] = f.read()
+    def render_result(self, result: Result, format):
+        if result.type == Type.TC:
+            rows = []
+            for case in result.cases:
+                rows.append(["correct" if case.result else "incorrect", case.input.string, case.arguments.string, *mark_differences(case.output.string, case.output_expected.string)])
+            return self.render(self.templates[format], headers=["Result", "Input", "Arguments", "Output", "Should be"], rows=rows)
+        elif result.type == Type.EE:
+            rows = [["correct" if result.result else "incorrect", result.descriptor, *mark_differences(result.output, result.output_expected)]]
+            return self.render(self.templates[format], headers=["Result", "Condition", "Value (Output)", "Should be"], rows=rows)
+        elif result.type == Type.ET or result.type == Type.EF:
+            rows = [["correct" if result.result else "incorrect", result.descriptor, *mark_differences(result.value, True)]]
+            return self.render(self.templates[format], headers=["Result", "Condition", "Value (Output)", "Should be"], rows=rows)
+        elif result.type == Type.FC:
+            all_keys = ["run_time", "max_run_time",
+                    "object", "object_after", "object_after_expected",
+                    "arguments", "arguments_after", "arguments_after_expected",
+                    "input", "output", "output_expected", "error", "error_expected",
+                    "return_value", "return_value_expected"]
+            keys = set()
+            for case in result.cases:
+                keys.update(key for key in all_keys if getattr(case, key) is not None)
+            if "run_time" not in keys or "max_run_time" not in keys:
+                keys.discard("run_time")
+                keys.discard("max_run_time")
+            keys = [key for key in all_keys if key in keys]
+            header_dict = {"run_time": "Run time", "max_run_time": "Max run time",
+                    "object": "Object", "object_after": "Object afterwards", "object_after_expected": "Expected object afterwards",
+                    "arguments": "Arguments", "arguments_after": "Arguments afterwards", "arguments_after_expected": "Expected arguments afterwards",
+                    "input": "Standard input", "output": "Standard output", "output_expected": "Expected standard output", "error": "Standard error", "error_expected": "Expected standard error",
+                    "return_value": "Return value", "return_value_expected": "Expected return value"}
+            headers = ["Result"] + [header_dict[key] for key in keys]
+            diff_pairs = [("object_after", "object_after_expected"), ("arguments_after", "arguments_after_expected"),
+                    ("output", "output_expected"), ("error", "error_expected"), ("return_value", "return_value_expected")]
+            rows = []
+            for case in result.cases:
+                if case.timed_out:
+                    rows.append(f"Timed out (max time: {case.timeout})")
+                else:
+                    data = {d[0]: d[1] for p in diff_pairs for d in zip(p, mark_differences(getattr(case, p[0]), getattr(case, p[1])))}
+                    data.update({key: getattr(case, key) for key in keys if key not in data})
+                    row = ["correct" if case.result else "incorrect"] + [data[key] for key in keys]
+                    row = [r.string if isinstance(r, UserObject) else r for r in row]
+                    rows.append(row)
+            return self.render(self.templates[format], headers=headers, rows=rows)
 
-report = Report(report_filename)
+    def render(self, template_name, **kwargs):
+        return self.env.get_template(template_name).render(render=self.render, **kwargs)
 
-if max_points == -1:
-    point_multiplier = 1
-else:
-    point_multiplier = max_points/report.max_points
 
-stdio = ""
-tests = ""
-for test in report.tests:
-    if test.stdout != "" or test.stderr != "":
-        stdio += "Test: " + test.get_name() + "\n"
-        if (test.stdout != ""):
-            stdio += "Stdout: " + test.stdout + "\n"
-        if (test.stderr != ""):
-            stdio += "Stderr: " + test.stderr + "\n"
-        stdio += "--------------------------------------------------------------\n"
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("-o", dest='out', type=str, default="stdout")
+    parser.add_argument("-i", dest='input', type=str, default="report.json")
+    parser.add_argument("-p", dest='max_points', type=float, default=-1)
+    parser.add_argument("-t", dest='template_dir', type=str, default=default_templates)
+    args = parser.parse_args()
 
-    format_name = default_format if not test.format else test.format
+    template_location = args.template_dir
+    report_filename = args.input
+    output_filename = args.out
+    max_points = args.max_points
 
-    def ET_func(template, result):
-        """Function for replacing condition case data"""
-        return replace_entries(template, result["descriptor"], "True", result["result"])
+    report = Report(report_filename)
+    beautify = Beautify(report, template_location)
 
-    def EF_func(template, result):
-        """Function for replacing condition case data"""
-        return replace_entries(template, result["descriptor"], "True", result["result"])
+    main = beautify.render_main()
 
-    def EE_func(template, result):
-        """Function for replacing condition case data"""
-        return replace_entries(template, result["descriptor"], result["left"], result["right"])
-
-    def TC_func(template, result):
-        """Function for replacing test case data"""
-        content = ""
-        for case in result.get("cases", []):
-            content += replace_entries(template, case["input"], case["correct"], case["output"])
-        return content
-
-    content = ""
-    for result in test.results:
-        content += replace(templates[format_name], result, "ET", ET_func, "Condition", "Output", "Should be")
-        content += replace(templates[format_name], result, "EF", EF_func, "Condition", "Output", "Should be")
-        content += replace(templates[format_name], result, "EE", EE_func, "Condition", "Output", "Should be")
-        content += replace(templates[format_name], result, "TC", TC_func, "Input", "Output", "Should be")
-
-    if test.status == Status.Started:
-        content = "Crashed or timed out while running this test.\n"
-
-    testbody = templates["testbody"].replace('{{{testname}}}', test.test)
-    testbody = testbody.replace('{{{suitename}}}', test.suite)
-    testbody = testbody.replace('{{{points}}}', str(test.points*point_multiplier))
-    testbody = testbody.replace('{{{max_points}}}', str(test.max_points*point_multiplier))
-    testbody = testbody.replace('{{{point_state}}}',
-        "full-points" if test.points == test.max_points else
-        "zero-points" if test.points == 0 else
-        "partial-points")
-    testbody = sanitize_replace(testbody, '{{{testid}}}', test.suite + test.test)
-    testbody = testbody.replace('{{{testcontent}}}', content)
-
-    tests += testbody
-
-main = sanitize_replace(templates["main"], '{{{stdio}}}', stdio)
-main = main.replace('{{{tests}}}', tests)
-
-if output_filename == "stdout":
-    print(main)
-else:
-    with open(output_filename, 'w') as f:
-        f.write(main)
+    if output_filename == "stdout":
+        print(main)
+    else:
+        with open(output_filename, 'w') as f:
+            f.write(main)

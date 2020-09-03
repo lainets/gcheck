@@ -1,26 +1,18 @@
 <table class="gcheck gcheck-table gcheck-vertical-table">
     <tr class="gcheck gcheck-tr gcheck-vertical-tr">
+    {% for header in headers %}
         <th class="gcheck gcheck-th gcheck-vertical-th">
-                {{{input_header}}}
+            {{header}}
         </th>
-        <th class="gcheck gcheck-th gcheck-vertical-th">
-                {{{output_header}}}
-        </th>
-        <th class="gcheck gcheck-th gcheck-vertical-th">
-                {{{correct_header}}}
-        </th>
+    {% endfor %}
     </tr>
-<!--ENTRY
-    <tr class="gcheck gcheck-tr gcheck-vertical-tr">
-        <td class="gcheck gcheck-td gcheck-vertical-td">
-            <pre>{{{input}}}</pre>
-        </td>
-        <td class="gcheck gcheck-td gcheck-vertical-td">
-            <pre>{{{output}}}</pre>
-        </td>
-        <td class="gcheck gcheck-td gcheck-vertical-td">
-            <pre>{{{correct}}}</pre>
-        </td>
-    </tr>
--->
+    {% for row in rows %}
+        <tr class="gcheck gcheck-tr gcheck-vertical-tr">
+        {% for field in row %}
+            <td class="gcheck gcheck-td gcheck-vertical-td">
+                <pre>{{field | diff('<span style="background-color: red">', '</span>')}}</pre>
+            </td>
+        {% endfor %}
+        </tr>
+    {% endfor %}
 </table>

@@ -1,32 +1,14 @@
 <table class="gcheck gcheck-table gcheck-horizontal-table">
+{% for i in range(headers | length) %}
     <tr class="gcheck gcheck-tr gcheck-horizontal-tr">
         <th class="gcheck gcheck-th gcheck-horizontal-th">
-            {{{input_header}}}
+            {{headers[i]}}
         </th>
-<!--ENTRY
+    {% for row in rows %}
         <td class="gcheck gcheck-td gcheck-horizontal-td">
-            <pre>{{{input}}}</pre>
+            <pre>{{row[i] | diff('<span style="background-color: red">', '</span>')}}</pre>
         </td>
--->
+    {% endfor %}
     </tr>
-    <tr class="gcheck gcheck-tr gcheck-horizontal-tr">
-        <th class="gcheck gcheck-th gcheck-horizontal-th">
-            {{{output_header}}}
-        </th>
-<!--ENTRY
-        <td class="gcheck gcheck-td gcheck-horizontal-td">
-            <pre>{{{output}}}</pre>
-        </td>
--->
-    </tr>
-    <tr class="gcheck gcheck-tr gcheck-horizontal-tr">
-        <th class="gcheck gcheck-th gcheck-horizontal-th">
-            {{{correct_header}}}
-        </th>
-<!--ENTRY
-        <td class="gcheck gcheck-td gcheck-horizontal-td">
-            <pre>{{{correct}}}</pre>
-        </td>
--->
-    </tr>
+{% endfor %}
 </table>

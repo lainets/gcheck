@@ -1,21 +1,11 @@
-<!--
-<script src="https://ajax.googleapis.com/ajax/libs/angularjs/1.6.9/angular.min.js"></script>
-<div id="compile">
-
-</div>
-<div id="console">
-
-</div>
-<div id="tests" ng-app="DemoApp">-->
-<div  class="gcheck gcheck-header" ng-click="$ctrl.stdio_show=!$ctrl.stdio_show">
-    <div style="float:left; width: 30px; text-align: center;" ng-hide="$ctrl.stdio_show">+</div>
-    <div style="float:left; width: 30px; text-align: center;" ng-show="$ctrl.stdio_show">-</div>
+<div class="gcheck gcheck-header">
     Stdio
 </div>
-<pre class="console gcheck gcheck-stdio" ng-show="$ctrl.stdio_show">{{{stdio}}}</pre>
+<pre class="console gcheck gcheck-stdio">
+    {{ render_stdio() }}
+</pre>
 <div class="gcheck gcheck-tests">
-    {{{tests}}}
-</div><!--
-<script type="text/javascript">
-    var app = angular.module('DemoApp',[]);
-</script>-->
+{% for test in tests %}
+    {{ render_test(test) | safe }}
+{% endfor %}
+</div>

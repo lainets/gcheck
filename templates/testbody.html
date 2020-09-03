@@ -1,10 +1,11 @@
-<div id="{{{testid}}}" class="gcheck gcheck-testbody">
-    <div  class="gcheck gcheck-header gcheck-{{{point_state}}}" ng-init="$ctrl.{{{testid}}}={{{points}}}!={{{max_points}}}" ng-click="$ctrl.{{{testid}}}=!$ctrl.{{{testid}}}">
-        <div style="float: left; width: 30px; text-align: center;" ng-hide="$ctrl.{{{testid}}}">+</div>
-        <div style="float: left; width: 30px; text-align: center;" ng-show="$ctrl.{{{testid}}}">-</div>
-        {{{suitename}}}, {{{testname}}} {{{points}}}/{{{max_points}}}
+<div class="gcheck gcheck-content">
+{% if results | length == 0 %}
+    <div class="gcheck gcheck-noresults">
+        Nothing to show
     </div>
-    <div id="{{{testid}}}-content" ng-show="$ctrl.{{{testid}}}" class="gcheck gcheck-content">
-        {{{testcontent}}}
-    </div>
+{% else %}
+    {% for result in results %}
+        {{ render_result(result, format) | safe }}
+    {% endfor %}
+{% endif %}
 </div>
